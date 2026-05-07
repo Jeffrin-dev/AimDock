@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AimDock</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: Inter, system-ui, sans-serif;
+        background: #0a0c0f;
+        color: #e6edf3;
+        display: grid;
+        place-items: center;
+      }
+      main {
+        width: min(680px, 90vw);
+      }
+      h1 {
+        margin-top: 0;
+        font-size: 2rem;
+      }
+      button {
+        border: 1px solid #30363d;
+        background: #161b22;
+        color: #e6edf3;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      #devices {
+        margin-top: 1rem;
+        border: 1px solid #30363d;
+        border-radius: 10px;
+        padding: 1rem;
+        background: #11161d;
+        min-height: 2.5rem;
+      }
+      ul {
+        margin: 0;
+        padding-left: 1.1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>AimDock</h1>
+      <button id="scan">Scan for Devices</button>
+      <div id="devices">Click "Scan for Devices" to detect connected phones.</div>
+    </main>
+
+    <script type="module">
+      import { invoke } from "@tauri-apps/api/core";
+
+      const scanButton = document.getElementById("scan");
+      const devicesEl = document.getElementById("devices");
+
+      scanButton.addEventListener("click", async () => {
+        devicesEl.textContent = "Scanning...";
+
+        try {
+          const devices = await invoke("list_devices");
+
+          if (!Array.isArray(devices) || devices.length === 0) {
+            devicesEl.textContent = "No devices found. Connect your phone via USB.";
+            return;
+          }
+
+          const list = document.createElement("ul");
+          devices.forEach((serial) => {
+            const item = document.createElement("li");
+            item.textContent = serial;
+            list.appendChild(item);
+          });
+
+          devicesEl.innerHTML = "";
+          devicesEl.appendChild(list);
+        } catch (error) {
+          devicesEl.textContent = `Failed to scan devices: ${error}`;
+        }
+      });
+    </script>
+  </body>
+</html>
