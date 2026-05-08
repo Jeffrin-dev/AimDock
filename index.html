@@ -40,9 +40,21 @@
         background: #11161d;
         min-height: 2.5rem;
       }
-      ul {
-        margin: 0;
-        padding-left: 1.1rem;
+      .device-list {
+        display: grid;
+        gap: 0.75rem;
+      }
+      .device-card {
+        width: 100%;
+        text-align: left;
+      }
+      #status {
+        margin-top: 1rem;
+        min-height: 1.5rem;
+      }
+      #stop-stream {
+        display: none;
+        margin-top: 0.5rem;
       }
     </style>
   </head>
@@ -51,6 +63,8 @@
       <h1>AimDock</h1>
       <button id="scan">Scan for Devices</button>
       <div id="devices">Click "Scan for Devices" to detect connected phones.</div>
+      <div id="status" role="status"></div>
+      <button id="stop-stream">Stop Stream</button>
     </main>
 
     <script type="module">
@@ -58,6 +72,35 @@
 
       const scanButton = document.getElementById("scan");
       const devicesEl = document.getElementById("devices");
+      const statusEl = document.getElementById("status");
+      const stopStreamButton = document.getElementById("stop-stream");
+
+      const setStreaming = (isStreaming) => {
+        stopStreamButton.style.display = isStreaming ? "inline-block" : "none";
+      };
+
+      const startStream = async (serial) => {
+        statusEl.textContent = "Starting stream...";
+
+        try {
+          await invoke("start_stream", { serial });
+          statusEl.textContent = "Streaming...";
+          setStreaming(true);
+        } catch (error) {
+          statusEl.textContent = `Failed to start stream: ${error}`;
+          setStreaming(false);
+        }
+      };
+
+      stopStreamButton.addEventListener("click", async () => {
+        try {
+          await invoke("stop_stream");
+          statusEl.textContent = "Stream stopped.";
+          setStreaming(false);
+        } catch (error) {
+          statusEl.textContent = `Failed to stop stream: ${error}`;
+        }
+      });
 
       scanButton.addEventListener("click", async () => {
         devicesEl.textContent = "Scanning...";
@@ -70,11 +113,15 @@
             return;
           }
 
-          const list = document.createElement("ul");
+          const list = document.createElement("div");
+          list.className = "device-list";
           devices.forEach((serial) => {
-            const item = document.createElement("li");
-            item.textContent = serial;
-            list.appendChild(item);
+            const deviceButton = document.createElement("button");
+            deviceButton.type = "button";
+            deviceButton.className = "device-card";
+            deviceButton.textContent = serial;
+            deviceButton.addEventListener("click", () => startStream(serial));
+            list.appendChild(deviceButton);
           });
 
           devicesEl.innerHTML = "";
