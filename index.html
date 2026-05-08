@@ -52,7 +52,9 @@
         margin-top: 1rem;
         min-height: 1.5rem;
       }
-      #stop-stream {
+      #stop-stream,
+      #enable-input,
+      #disable-input {
         display: none;
         margin-top: 0.5rem;
       }
@@ -65,6 +67,8 @@
       <div id="devices">Click "Scan for Devices" to detect connected phones.</div>
       <div id="status" role="status"></div>
       <button id="stop-stream">Stop Stream</button>
+      <button id="enable-input">Enable Input (F1)</button>
+      <button id="disable-input">Disable Input</button>
     </main>
 
     <script type="module">
@@ -74,9 +78,21 @@
       const devicesEl = document.getElementById("devices");
       const statusEl = document.getElementById("status");
       const stopStreamButton = document.getElementById("stop-stream");
+      const enableInputButton = document.getElementById("enable-input");
+      const disableInputButton = document.getElementById("disable-input");
+      let currentSerial = null;
+
+      const setInputActive = (isActive) => {
+        enableInputButton.style.display = currentSerial && !isActive ? "inline-block" : "none";
+        disableInputButton.style.display = isActive ? "inline-block" : "none";
+      };
 
       const setStreaming = (isStreaming) => {
         stopStreamButton.style.display = isStreaming ? "inline-block" : "none";
+        if (!isStreaming) {
+          currentSerial = null;
+          setInputActive(false);
+        }
       };
 
       const startStream = async (serial) => {
@@ -84,21 +100,52 @@
 
         try {
           await invoke("start_stream", { serial });
+          currentSerial = serial;
           statusEl.textContent = "Streaming...";
           setStreaming(true);
+          setInputActive(false);
         } catch (error) {
           statusEl.textContent = `Failed to start stream: ${error}`;
           setStreaming(false);
+          setInputActive(false);
         }
       };
 
       stopStreamButton.addEventListener("click", async () => {
         try {
+          await invoke("stop_input");
           await invoke("stop_stream");
           statusEl.textContent = "Stream stopped.";
           setStreaming(false);
+          setInputActive(false);
         } catch (error) {
           statusEl.textContent = `Failed to stop stream: ${error}`;
+        }
+      });
+
+      enableInputButton.addEventListener("click", async () => {
+        if (!currentSerial) {
+          statusEl.textContent = "Start a stream before enabling input.";
+          return;
+        }
+
+        try {
+          await invoke("start_input", { serial: currentSerial });
+          statusEl.textContent = "Input active — F1 to toggle";
+          setInputActive(true);
+        } catch (error) {
+          statusEl.textContent = `Failed to enable input: ${error}`;
+          setInputActive(false);
+        }
+      });
+
+      disableInputButton.addEventListener("click", async () => {
+        try {
+          await invoke("stop_input");
+          statusEl.textContent = "Input disabled.";
+          setInputActive(false);
+        } catch (error) {
+          statusEl.textContent = `Failed to disable input: ${error}`;
         }
       });
 
