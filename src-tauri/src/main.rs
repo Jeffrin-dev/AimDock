@@ -57,7 +57,7 @@ fn start_stream(serial: String, state: tauri::State<'_, StreamState>) -> Result<
         return Err("stream is already running".to_string());
     }
 
-    let child = Command::new("/usr/bin/scrcpy")
+    let child = Command::new("/usr/local/bin/scrcpy")
         .arg("--serial")
         .arg(serial)
         .arg("--turn-screen-off")
