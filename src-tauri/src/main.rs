@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod input;
+
 use std::{
     process::{Child, Command},
     sync::Mutex,
@@ -75,6 +77,17 @@ fn start_stream(serial: String, state: tauri::State<'_, StreamState>) -> Result<
 }
 
 #[tauri::command]
+fn start_input(serial: String) -> Result<(), String> {
+    input::start_input_listener(serial)
+}
+
+#[tauri::command]
+fn stop_input() -> Result<(), String> {
+    input::stop_input_listener();
+    Ok(())
+}
+
+#[tauri::command]
 fn stop_stream(state: tauri::State<'_, StreamState>) -> Result<(), String> {
     let child = state
         .child
@@ -100,7 +113,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             list_devices,
             start_stream,
-            stop_stream
+            stop_stream,
+            start_input,
+            stop_input
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
