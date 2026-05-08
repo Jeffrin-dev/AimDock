@@ -1,6 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::process::Command;
+use std::{
+    process::{Child, Command},
+    sync::Mutex,
+};
+
+struct StreamState {
+    child: Mutex<Option<Child>>,
+}
 
 #[tauri::command]
 fn list_devices() -> Result<Vec<String>, String> {
@@ -39,9 +46,62 @@ fn list_devices() -> Result<Vec<String>, String> {
     Ok(devices)
 }
 
+#[tauri::command]
+fn start_stream(serial: String, state: tauri::State<'_, StreamState>) -> Result<(), String> {
+    let mut stream = state
+        .child
+        .lock()
+        .map_err(|_| "failed to lock stream state".to_string())?;
+
+    if stream.is_some() {
+        return Err("stream is already running".to_string());
+    }
+
+    let child = Command::new("/usr/bin/scrcpy")
+        .arg("--serial")
+        .arg(serial)
+        .arg("--turn-screen-off")
+        .arg("--max-fps")
+        .arg("60")
+        .arg("--video-bit-rate")
+        .arg("8M")
+        .arg("--no-audio")
+        .spawn()
+        .map_err(|e| format!("failed to start scrcpy: {e}"))?;
+
+    *stream = Some(child);
+
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_stream(state: tauri::State<'_, StreamState>) -> Result<(), String> {
+    let child = state
+        .child
+        .lock()
+        .map_err(|_| "failed to lock stream state".to_string())?
+        .take();
+
+    if let Some(mut child) = child {
+        child
+            .kill()
+            .map_err(|e| format!("failed to stop scrcpy: {e}"))?;
+        let _ = child.wait();
+    }
+
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![list_devices])
+        .manage(StreamState {
+            child: Mutex::new(None),
+        })
+        .invoke_handler(tauri::generate_handler![
+            list_devices,
+            start_stream,
+            stop_stream
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
