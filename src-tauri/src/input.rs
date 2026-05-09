@@ -47,6 +47,7 @@ static MOVE_D: AtomicBool = AtomicBool::new(false);
 static CONTROL_HELD: AtomicBool = AtomicBool::new(false);
 static CONTROL_HOLD_SENT: AtomicBool = AtomicBool::new(false);
 static MOUSE_FIRE_HELD: AtomicBool = AtomicBool::new(false);
+static CAMERA_ACTIVE: AtomicBool = AtomicBool::new(false);
 static MOUSE_DX: AtomicI64 = AtomicI64::new(0);
 static MOUSE_DY: AtomicI64 = AtomicI64::new(0);
 static LAST_MOUSE_POSITION: Mutex<Option<(f64, f64)>> = Mutex::new(None);
@@ -126,6 +127,9 @@ fn spawn_mouse_thread() {
         thread::sleep(Duration::from_millis(16));
 
         if !INPUT_ENABLED.load(Ordering::SeqCst) {
+            if CAMERA_ACTIVE.swap(false, Ordering::SeqCst) {
+                send_touch("CAMERA_END");
+            }
             MOUSE_DX.store(0, Ordering::SeqCst);
             MOUSE_DY.store(0, Ordering::SeqCst);
             continue;
@@ -135,14 +139,19 @@ fn spawn_mouse_thread() {
         let dy = MOUSE_DY.swap(0, Ordering::SeqCst);
 
         if dx == 0 && dy == 0 {
+            if CAMERA_ACTIVE.swap(false, Ordering::SeqCst) {
+                send_touch("CAMERA_END");
+            }
             continue;
         }
 
         let end_x = (CAMERA_START_X + ((dx as f64) * CAMERA_SENSITIVITY) as i32).clamp(700, 1900);
         let end_y = (CAMERA_START_Y + ((dy as f64) * CAMERA_SENSITIVITY) as i32).clamp(200, 800);
-        send_touch(&format!(
-            "SWIPE {CAMERA_START_X} {CAMERA_START_Y} {end_x} {end_y} 16"
-        ));
+
+        if !CAMERA_ACTIVE.swap(true, Ordering::SeqCst) {
+            send_touch(&format!("CAMERA_START {CAMERA_START_X} {CAMERA_START_Y}"));
+        }
+        send_touch(&format!("CAMERA_MOVE {end_x} {end_y}"));
     });
 }
 
@@ -307,6 +316,8 @@ fn reset_input_state() {
     CONTROL_HOLD_SENT.store(false, Ordering::SeqCst);
     MOUSE_DX.store(0, Ordering::SeqCst);
     MOUSE_DY.store(0, Ordering::SeqCst);
+    CAMERA_ACTIVE.store(false, Ordering::SeqCst);
+    send_touch("CAMERA_END");
 
     if let Ok(mut last_position) = LAST_MOUSE_POSITION.lock() {
         *last_position = None;
