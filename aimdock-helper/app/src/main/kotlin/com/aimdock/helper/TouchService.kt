@@ -25,6 +25,10 @@ class TouchService : AccessibilityService() {
 
     private var serverThread: Thread? = null
 
+    private var cameraStroke: GestureDescription.StrokeDescription? = null
+    private var cameraX: Float = 0f
+    private var cameraY: Float = 0f
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         startTcpServer()
@@ -113,6 +117,9 @@ class TouchService : AccessibilityService() {
         when (parts.firstOrNull()?.uppercase(Locale.US)) {
             "TAP" -> handleTap(parts)
             "SWIPE" -> handleSwipe(parts)
+            "CAMERA_START" -> handleCameraStart(parts)
+            "CAMERA_MOVE" -> handleCameraMove(parts)
+            "CAMERA_END" -> handleCameraEnd()
             else -> Log.w(TAG, "Unknown touch command: $command")
         }
     }
@@ -157,6 +164,45 @@ class TouchService : AccessibilityService() {
             lineTo(x2, y2)
         }
         dispatchPath(path, duration)
+    }
+
+    private fun handleCameraStart(parts: List<String>) {
+        if (parts.size != 3) return
+        val x = parts[1].toFloatOrNull() ?: return
+        val y = parts[2].toFloatOrNull() ?: return
+        cameraX = x
+        cameraY = y
+        val path = Path().apply { moveTo(x, y) }
+        val stroke = GestureDescription.StrokeDescription(path, 0, 100, true)
+        cameraStroke = stroke
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        dispatchGesture(gesture, null, null)
+    }
+
+    private fun handleCameraMove(parts: List<String>) {
+        val prev = cameraStroke ?: return
+        if (parts.size != 3) return
+        val x = parts[1].toFloatOrNull() ?: return
+        val y = parts[2].toFloatOrNull() ?: return
+        val path = Path().apply {
+            moveTo(cameraX, cameraY)
+            lineTo(x, y)
+        }
+        cameraX = x
+        cameraY = y
+        val continuation = prev.continueStroke(path, 0, 50, true)
+        cameraStroke = continuation
+        val gesture = GestureDescription.Builder().addStroke(continuation).build()
+        dispatchGesture(gesture, null, null)
+    }
+
+    private fun handleCameraEnd() {
+        val prev = cameraStroke ?: return
+        val path = Path().apply { moveTo(cameraX, cameraY) }
+        val end = prev.continueStroke(path, 0, 50, false)
+        cameraStroke = null
+        val gesture = GestureDescription.Builder().addStroke(end).build()
+        dispatchGesture(gesture, null, null)
     }
 
     private fun dispatchPath(path: Path, durationMs: Long) {
