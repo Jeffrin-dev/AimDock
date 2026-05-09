@@ -1,6 +1,7 @@
 use rdev::{listen, Button, Event, EventType, Key};
 use std::{
-    process::Command,
+    io::Write,
+    net::TcpStream,
     sync::{
         atomic::{AtomicBool, AtomicI64, Ordering},
         Mutex,
@@ -49,8 +50,11 @@ static MOUSE_DX: AtomicI64 = AtomicI64::new(0);
 static MOUSE_DY: AtomicI64 = AtomicI64::new(0);
 static LAST_MOUSE_POSITION: Mutex<Option<(f64, f64)>> = Mutex::new(None);
 static ACTIVE_SERIAL: Mutex<Option<String>> = Mutex::new(None);
+static TOUCH_STREAM: Mutex<Option<TcpStream>> = Mutex::new(None);
 
 pub fn start_input_listener(serial: String) -> Result<(), String> {
+    connect_touch_server()?;
+
     {
         let mut active_serial = ACTIVE_SERIAL
             .lock()
@@ -77,22 +81,38 @@ pub fn stop_input_listener() {
     if let Ok(mut active_serial) = ACTIVE_SERIAL.lock() {
         *active_serial = None;
     }
+
+    if let Ok(mut conn) = TOUCH_STREAM.lock() {
+        *conn = None;
+    }
 }
 
 fn spawn_movement_thread() {
     thread::spawn(|| loop {
         if INPUT_ENABLED.load(Ordering::SeqCst) {
             if MOVE_W.load(Ordering::SeqCst) {
-                adb_swipe(JOYSTICK_X, JOYSTICK_Y, JOYSTICK_X, JOYSTICK_Y - 100, 50);
+                send_touch(&format!(
+                    "SWIPE {JOYSTICK_X} {JOYSTICK_Y} {JOYSTICK_X} {} 50",
+                    JOYSTICK_Y - 100
+                ));
             }
             if MOVE_S.load(Ordering::SeqCst) {
-                adb_swipe(JOYSTICK_X, JOYSTICK_Y, JOYSTICK_X, JOYSTICK_Y + 100, 50);
+                send_touch(&format!(
+                    "SWIPE {JOYSTICK_X} {JOYSTICK_Y} {JOYSTICK_X} {} 50",
+                    JOYSTICK_Y + 100
+                ));
             }
             if MOVE_A.load(Ordering::SeqCst) {
-                adb_swipe(JOYSTICK_X, JOYSTICK_Y, JOYSTICK_X - 100, JOYSTICK_Y, 50);
+                send_touch(&format!(
+                    "SWIPE {JOYSTICK_X} {JOYSTICK_Y} {} {JOYSTICK_Y} 50",
+                    JOYSTICK_X - 100
+                ));
             }
             if MOVE_D.load(Ordering::SeqCst) {
-                adb_swipe(JOYSTICK_X, JOYSTICK_Y, JOYSTICK_X + 100, JOYSTICK_Y, 50);
+                send_touch(&format!(
+                    "SWIPE {JOYSTICK_X} {JOYSTICK_Y} {} {JOYSTICK_Y} 50",
+                    JOYSTICK_X + 100
+                ));
             }
         }
 
@@ -118,8 +138,10 @@ fn spawn_mouse_thread() {
         }
 
         let end_x = (CAMERA_START_X + ((dx as f64) * CAMERA_SENSITIVITY) as i32).clamp(700, 1900);
-        let end_y = (CAMERA_START_Y + ((dy as f64) * CAMERA_SENSITIVITY) as i32).clamp(200, 800); 
-        adb_swipe(CAMERA_START_X, CAMERA_START_Y, end_x, end_y, 16);
+        let end_y = (CAMERA_START_Y + ((dy as f64) * CAMERA_SENSITIVITY) as i32).clamp(200, 800);
+        send_touch(&format!(
+            "SWIPE {CAMERA_START_X} {CAMERA_START_Y} {end_x} {end_y} 16"
+        ));
     });
 }
 
@@ -165,16 +187,16 @@ fn handle_key_press(key: Key) {
         Key::KeyS => MOVE_S.store(true, Ordering::SeqCst),
         Key::KeyA => MOVE_A.store(true, Ordering::SeqCst),
         Key::KeyD => MOVE_D.store(true, Ordering::SeqCst),
-        Key::KeyR => adb_tap(RELOAD_X, RELOAD_Y),
-        Key::Space => adb_tap(JUMP_X, JUMP_Y),
-        Key::ShiftLeft | Key::ShiftRight => adb_tap(SPRINT_X, SPRINT_Y),
+        Key::KeyR => send_touch(&format!("TAP {RELOAD_X} {RELOAD_Y}")),
+        Key::Space => send_touch(&format!("TAP {JUMP_X} {JUMP_Y}")),
+        Key::ShiftLeft | Key::ShiftRight => send_touch(&format!("TAP {SPRINT_X} {SPRINT_Y}")),
         Key::ControlLeft | Key::ControlRight => start_control_hold(),
-        Key::KeyQ => adb_tap(SKILL_X, SKILL_Y),
-        Key::Num1 => adb_tap(WEAPON1_X, WEAPON1_Y),
-        Key::Num2 => adb_tap(WEAPON2_X, WEAPON2_Y),
-        Key::KeyV => adb_tap(WEAPON1_X, WEAPON1_Y),
-        Key::KeyF => adb_tap(ARMOR_X, ARMOR_Y),
-        Key::KeyG => adb_tap(THROWABLE_X, THROWABLE_Y),
+        Key::KeyQ => send_touch(&format!("TAP {SKILL_X} {SKILL_Y}")),
+        Key::Num1 => send_touch(&format!("TAP {WEAPON1_X} {WEAPON1_Y}")),
+        Key::Num2 => send_touch(&format!("TAP {WEAPON2_X} {WEAPON2_Y}")),
+        Key::KeyV => send_touch(&format!("TAP {WEAPON1_X} {WEAPON1_Y}")),
+        Key::KeyF => send_touch(&format!("TAP {ARMOR_X} {ARMOR_Y}")),
+        Key::KeyG => send_touch(&format!("TAP {THROWABLE_X} {THROWABLE_Y}")),
         _ => {}
     }
 }
@@ -188,7 +210,7 @@ fn handle_key_release(key: Key) {
     match key {
         Key::KeyW | Key::KeyS | Key::KeyA | Key::KeyD => {
             reset_movement_key(key);
-            adb_tap(JOYSTICK_X, JOYSTICK_Y);
+            send_touch(&format!("TAP {JOYSTICK_X} {JOYSTICK_Y}"));
         }
         Key::ControlLeft | Key::ControlRight => finish_control_hold(),
         _ => {}
@@ -201,8 +223,8 @@ fn handle_button_press(button: Button) {
     }
 
     match button {
-        Button::Left => adb_tap(FIRE_X, FIRE_Y),
-        Button::Right => adb_tap(SCOPE_X, SCOPE_Y),
+        Button::Left => send_touch(&format!("TAP {FIRE_X} {FIRE_Y}")),
+        Button::Right => send_touch(&format!("TAP {SCOPE_X} {SCOPE_Y}")),
         _ => {}
     }
 }
@@ -218,7 +240,9 @@ fn start_control_hold() {
 
         if CONTROL_HELD.load(Ordering::SeqCst) && INPUT_ENABLED.load(Ordering::SeqCst) {
             CONTROL_HOLD_SENT.store(true, Ordering::SeqCst);
-            adb_swipe(CROUCH_X, CROUCH_Y, CROUCH_X, CROUCH_Y, 1000);
+            send_touch(&format!(
+                "SWIPE {CROUCH_X} {CROUCH_Y} {CROUCH_X} {CROUCH_Y} 1000"
+            ));
         }
     });
 }
@@ -227,7 +251,7 @@ fn finish_control_hold() {
     CONTROL_HELD.store(false, Ordering::SeqCst);
 
     if !CONTROL_HOLD_SENT.swap(false, Ordering::SeqCst) {
-        adb_tap(CROUCH_X, CROUCH_Y);
+        send_touch(&format!("TAP {CROUCH_X} {CROUCH_Y}"));
     }
 }
 
@@ -271,36 +295,18 @@ fn reset_input_state() {
     }
 }
 
-fn adb_tap(x: i32, y: i32) {
-    run_adb(["shell", "input", "tap", &x.to_string(), &y.to_string()]);
+fn connect_touch_server() -> Result<(), String> {
+    let stream = TcpStream::connect("127.0.0.1:7070")
+        .map_err(|e| format!("failed to connect to touch server: {e}"))?;
+    let mut conn = TOUCH_STREAM.lock().map_err(|_| "lock error".to_string())?;
+    *conn = Some(stream);
+    Ok(())
 }
 
-fn adb_swipe(start_x: i32, start_y: i32, end_x: i32, end_y: i32, duration_ms: i32) {
-    run_adb([
-        "shell",
-        "input",
-        "swipe",
-        &start_x.to_string(),
-        &start_y.to_string(),
-        &end_x.to_string(),
-        &end_y.to_string(),
-        &duration_ms.to_string(),
-    ]);
-}
-
-fn run_adb<const N: usize>(args: [&str; N]) {
-    let serial = match ACTIVE_SERIAL.lock() {
-        Ok(active_serial) => active_serial.clone(),
-        Err(_) => None,
-    };
-
-    let Some(serial) = serial else {
-        return;
-    };
-
-    let _ = Command::new("adb")
-        .arg("-s")
-        .arg(serial)
-        .args(args)
-        .spawn();
+fn send_touch(command: &str) {
+    if let Ok(mut conn) = TOUCH_STREAM.lock() {
+        if let Some(ref mut stream) = *conn {
+            let _ = stream.write_all(format!("{command}\n").as_bytes());
+        }
+    }
 }
