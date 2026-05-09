@@ -46,6 +46,7 @@ static MOVE_A: AtomicBool = AtomicBool::new(false);
 static MOVE_D: AtomicBool = AtomicBool::new(false);
 static CONTROL_HELD: AtomicBool = AtomicBool::new(false);
 static CONTROL_HOLD_SENT: AtomicBool = AtomicBool::new(false);
+static MOUSE_FIRE_HELD: AtomicBool = AtomicBool::new(false);
 static MOUSE_DX: AtomicI64 = AtomicI64::new(0);
 static MOUSE_DY: AtomicI64 = AtomicI64::new(0);
 static LAST_MOUSE_POSITION: Mutex<Option<(f64, f64)>> = Mutex::new(None);
@@ -165,6 +166,7 @@ fn handle_event(event: Event) {
         EventType::KeyPress(key) => handle_key_press(key),
         EventType::KeyRelease(key) => handle_key_release(key),
         EventType::ButtonPress(button) => handle_button_press(button),
+        EventType::ButtonRelease(button) => handle_button_release(button),
         EventType::MouseMove { x, y } => handle_mouse_move(x, y),
         _ => {}
     }
@@ -223,9 +225,25 @@ fn handle_button_press(button: Button) {
     }
 
     match button {
-        Button::Left => send_touch(&format!("TAP {FIRE_X} {FIRE_Y}")),
-        Button::Right => send_touch(&format!("TAP {SCOPE_X} {SCOPE_Y}")),
+        Button::Left => {
+            if MOUSE_FIRE_HELD.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            thread::spawn(|| {
+                while MOUSE_FIRE_HELD.load(Ordering::SeqCst) && INPUT_ENABLED.load(Ordering::SeqCst)
+                {
+                    send_touch(&format!("SWIPE {FIRE_X} {FIRE_Y} {FIRE_X} {FIRE_Y} 150"));
+                    thread::sleep(Duration::from_millis(100));
+                }
+            });
+        }
         _ => {}
+    }
+}
+
+fn handle_button_release(button: Button) {
+    if button == Button::Left {
+        MOUSE_FIRE_HELD.store(false, Ordering::SeqCst);
     }
 }
 
