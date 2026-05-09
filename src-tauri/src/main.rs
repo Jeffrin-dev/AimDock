@@ -59,9 +59,14 @@ fn start_stream(serial: String, state: tauri::State<'_, StreamState>) -> Result<
         return Err("stream is already running".to_string());
     }
 
+    Command::new("adb")
+        .args(["-s", &serial, "forward", "tcp:7070", "tcp:7070"])
+        .status()
+        .ok();
+
     let child = Command::new("/usr/local/bin/scrcpy")
         .arg("--serial")
-        .arg(serial)
+        .arg(&serial)
         .arg("--turn-screen-off")
         .arg("--max-fps")
         .arg("60")
