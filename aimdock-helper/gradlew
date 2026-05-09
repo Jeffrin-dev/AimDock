@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+set -e
+if command -v gradle >/dev/null 2>&1; then
+  exec gradle "$@"
+fi
+
+echo "Gradle is required to build AimDock Helper. Install Gradle or replace this script with the standard Gradle wrapper JAR." >&2
+exit 1
