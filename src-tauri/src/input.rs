@@ -9,17 +9,31 @@ use std::{
     time::Duration,
 };
 
-const JOYSTICK_X: i32 = 468;
-const JOYSTICK_Y: i32 = 789;
-const FIRE_X: i32 = 1942;
-const FIRE_Y: i32 = 540;
-const SPRINT_X: i32 = 2012;
-const SPRINT_Y: i32 = 702;
-const CROUCH_X: i32 = 2141;
-const CROUCH_Y: i32 = 886;
-const RELOAD_X: i32 = 1850;
-const RELOAD_Y: i32 = 880;
-const CAMERA_START_X: i32 = 1600;
+const JOYSTICK_X: i32 = 225;
+const JOYSTICK_Y: i32 = 700;
+const FIRE_X: i32 = 520;
+const FIRE_Y: i32 = 236;
+const SCOPE_X: i32 = 2147;
+const SCOPE_Y: i32 = 549;
+const SPRINT_X: i32 = 1953;
+const SPRINT_Y: i32 = 345;
+const CROUCH_X: i32 = 2112;
+const CROUCH_Y: i32 = 996;
+const RELOAD_X: i32 = 1960;
+const RELOAD_Y: i32 = 1011;
+const JUMP_X: i32 = 2258;
+const JUMP_Y: i32 = 730;
+const SKILL_X: i32 = 2307;
+const SKILL_Y: i32 = 401;
+const WEAPON1_X: i32 = 898;
+const WEAPON1_Y: i32 = 889;
+const WEAPON2_X: i32 = 1129;
+const WEAPON2_Y: i32 = 892;
+const ARMOR_X: i32 = 745;
+const ARMOR_Y: i32 = 916;
+const THROWABLE_X: i32 = 1303;
+const THROWABLE_Y: i32 = 870;
+const CAMERA_START_X: i32 = 1000;
 const CAMERA_START_Y: i32 = 540;
 const CAMERA_SENSITIVITY: f64 = 2.0;
 
@@ -29,6 +43,8 @@ static MOVE_W: AtomicBool = AtomicBool::new(false);
 static MOVE_S: AtomicBool = AtomicBool::new(false);
 static MOVE_A: AtomicBool = AtomicBool::new(false);
 static MOVE_D: AtomicBool = AtomicBool::new(false);
+static CONTROL_HELD: AtomicBool = AtomicBool::new(false);
+static CONTROL_HOLD_SENT: AtomicBool = AtomicBool::new(false);
 static MOUSE_DX: AtomicI64 = AtomicI64::new(0);
 static MOUSE_DY: AtomicI64 = AtomicI64::new(0);
 static LAST_MOUSE_POSITION: Mutex<Option<(f64, f64)>> = Mutex::new(None);
@@ -150,8 +166,15 @@ fn handle_key_press(key: Key) {
         Key::KeyA => MOVE_A.store(true, Ordering::SeqCst),
         Key::KeyD => MOVE_D.store(true, Ordering::SeqCst),
         Key::KeyR => adb_tap(RELOAD_X, RELOAD_Y),
+        Key::Space => adb_tap(JUMP_X, JUMP_Y),
         Key::ShiftLeft | Key::ShiftRight => adb_tap(SPRINT_X, SPRINT_Y),
-        Key::ControlLeft | Key::ControlRight => adb_tap(CROUCH_X, CROUCH_Y),
+        Key::ControlLeft | Key::ControlRight => start_control_hold(),
+        Key::KeyQ => adb_tap(SKILL_X, SKILL_Y),
+        Key::Num1 => adb_tap(WEAPON1_X, WEAPON1_Y),
+        Key::Num2 => adb_tap(WEAPON2_X, WEAPON2_Y),
+        Key::KeyV => adb_tap(WEAPON1_X, WEAPON1_Y),
+        Key::KeyF => adb_tap(ARMOR_X, ARMOR_Y),
+        Key::KeyG => adb_tap(THROWABLE_X, THROWABLE_Y),
         _ => {}
     }
 }
@@ -167,6 +190,7 @@ fn handle_key_release(key: Key) {
             reset_movement_key(key);
             adb_tap(JOYSTICK_X, JOYSTICK_Y);
         }
+        Key::ControlLeft | Key::ControlRight => finish_control_hold(),
         _ => {}
     }
 }
@@ -177,8 +201,33 @@ fn handle_button_press(button: Button) {
     }
 
     match button {
-        Button::Left | Button::Right => adb_tap(FIRE_X, FIRE_Y),
+        Button::Left => adb_tap(FIRE_X, FIRE_Y),
+        Button::Right => adb_tap(SCOPE_X, SCOPE_Y),
         _ => {}
+    }
+}
+
+fn start_control_hold() {
+    if CONTROL_HELD.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    CONTROL_HOLD_SENT.store(false, Ordering::SeqCst);
+    thread::spawn(|| {
+        thread::sleep(Duration::from_millis(500));
+
+        if CONTROL_HELD.load(Ordering::SeqCst) && INPUT_ENABLED.load(Ordering::SeqCst) {
+            CONTROL_HOLD_SENT.store(true, Ordering::SeqCst);
+            adb_swipe(CROUCH_X, CROUCH_Y, CROUCH_X, CROUCH_Y, 1000);
+        }
+    });
+}
+
+fn finish_control_hold() {
+    CONTROL_HELD.store(false, Ordering::SeqCst);
+
+    if !CONTROL_HOLD_SENT.swap(false, Ordering::SeqCst) {
+        adb_tap(CROUCH_X, CROUCH_Y);
     }
 }
 
@@ -212,6 +261,8 @@ fn reset_input_state() {
     MOVE_S.store(false, Ordering::SeqCst);
     MOVE_A.store(false, Ordering::SeqCst);
     MOVE_D.store(false, Ordering::SeqCst);
+    CONTROL_HELD.store(false, Ordering::SeqCst);
+    CONTROL_HOLD_SENT.store(false, Ordering::SeqCst);
     MOUSE_DX.store(0, Ordering::SeqCst);
     MOUSE_DY.store(0, Ordering::SeqCst);
 
