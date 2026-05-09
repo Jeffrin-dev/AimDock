@@ -33,9 +33,9 @@ const ARMOR_X: i32 = 745;
 const ARMOR_Y: i32 = 916;
 const THROWABLE_X: i32 = 1303;
 const THROWABLE_Y: i32 = 870;
-const CAMERA_START_X: i32 = 1000;
+const CAMERA_START_X: i32 = 1400;
 const CAMERA_START_Y: i32 = 540;
-const CAMERA_SENSITIVITY: f64 = 2.0;
+const CAMERA_SENSITIVITY: f64 = 0.8;
 
 static INPUT_ENABLED: AtomicBool = AtomicBool::new(false);
 static LISTENER_RUNNING: AtomicBool = AtomicBool::new(false);
@@ -117,8 +117,8 @@ fn spawn_mouse_thread() {
             continue;
         }
 
-        let end_x = CAMERA_START_X + ((dx as f64) * CAMERA_SENSITIVITY) as i32;
-        let end_y = CAMERA_START_Y + ((dy as f64) * CAMERA_SENSITIVITY) as i32;
+        let end_x = (CAMERA_START_X + ((dx as f64) * CAMERA_SENSITIVITY) as i32).clamp(700, 1900);
+        let end_y = (CAMERA_START_Y + ((dy as f64) * CAMERA_SENSITIVITY) as i32).clamp(200, 800); 
         adb_swipe(CAMERA_START_X, CAMERA_START_Y, end_x, end_y, 16);
     });
 }
@@ -302,5 +302,5 @@ fn run_adb<const N: usize>(args: [&str; N]) {
         .arg("-s")
         .arg(serial)
         .args(args)
-        .status();
+        .spawn();
 }
